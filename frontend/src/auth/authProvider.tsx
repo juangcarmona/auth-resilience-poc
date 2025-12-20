@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { setTokenProvider } from '../services/apiClient';
 
 const authMode = import.meta.env.VITE_AUTH_MODE;
 
@@ -114,6 +115,21 @@ function NormalModeAuthProvider({ children }: { children: ReactNode }) {
         if (event.eventType === msalBrowser.EventType.LOGIN_SUCCESS ||
             event.eventType === msalBrowser.EventType.ACQUIRE_TOKEN_SUCCESS) {
           setAccounts(instance.getAllAccounts());
+        }
+      });
+
+      setTokenProvider(async () => {
+        const accts = instance.getAllAccounts();
+        if (accts.length === 0) return null;
+        try {
+          const { tokenRequest: tokenReq } = await import('./msalConfig');
+          const response = await instance.acquireTokenSilent({
+            ...tokenReq,
+            account: accts[0],
+          });
+          return response.accessToken;
+        } catch {
+          return null;
         }
       });
     }

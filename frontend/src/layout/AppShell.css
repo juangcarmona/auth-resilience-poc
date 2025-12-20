@@ -1,0 +1,58 @@
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #faf9f8;
+}
+
+.app-main {
+  flex: 1;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  width: 100%;
+}
+
+.loading-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #faf9f8;
+}
+
+.loading-spinner {
+  font-size: 1.125rem;
+  color: #605e5c;
+}
+
+.login-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 2rem;
+  background: #faf9f8;
+}
+
+.login-card {
+  background: #ffffff;
+  border: 1px solid #edebe9;
+  border-radius: 8px;
+  padding: 3rem;
+  max-width: 400px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.login-card h1 {
+  font-size: 1.75rem;
+  margin-bottom: 1rem;
+  color: #323130;
+}
+
+.login-card p {
+  color: #605e5c;
+  margin-bottom: 2rem;
+}

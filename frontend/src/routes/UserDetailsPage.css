@@ -1,0 +1,52 @@
+.user-details-page h1 {
+  font-size: 2rem;
+  margin-bottom: 2rem;
+  color: #323130;
+}
+
+.user-details-card {
+  background: #ffffff;
+  border: 1px solid #edebe9;
+  border-radius: 8px;
+  padding: 2rem;
+  max-width: 600px;
+}
+
+.detail-row {
+  display: flex;
+  padding: 1rem 0;
+  border-bottom: 1px solid #edebe9;
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-label {
+  font-weight: 600;
+  color: #323130;
+  min-width: 150px;
+}
+
+.detail-value {
+  color: #605e5c;
+  flex: 1;
+}
+
+.roles-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.roles-list li {
+  padding: 0.25rem 0;
+  color: #323130;
+}
+
+.roles-list li::before {
+  content: '• ';
+  color: #0078d4;
+  font-weight: bold;
+  margin-right: 0.5rem;
+}
