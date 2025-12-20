@@ -63,9 +63,21 @@ src/
   - "Recompute Weather Data" button
   - Calls `/api/weather/operations/recompute` with token
   - Requires `critical.operator` role
+- **Advanced Options** (only for users with `weather.tuner` role):
+  - Collapsible panel with fine-grained parameters:
+    - **Days**: Number of days to recompute (1-30)
+    - **Resolution**: Data resolution (low/medium/high)
+    - **Model**: Computation model (standard/experimental)
+  - Parameters sent only when advanced panel is expanded
+  - Demonstrates role-based progressive disclosure
 
 ### 5. Authorization
 - Client-side role checking via `isAuthorizedForCriticalOperation`
+- Role-based UI features via `hasRole()` helper
+- Multi-tier authorization:
+  - Base access: Authenticated users can view weather
+  - Critical operations: `critical.operator` role required
+  - Advanced controls: `weather.tuner` role required
 - UI elements hidden/disabled based on authorization
 - No 403 responses used for control flow
 

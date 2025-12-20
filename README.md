@@ -29,10 +29,11 @@ You need an Entra ID tenant with:
 ### API configuration
 
 * Application ID URI (e.g. `api://<api-client-id>`)
-* App role:
+* App roles:
 
   ```
-  critical.operator
+  critical.operator  - Required to execute recompute operations
+  weather.tuner      - Optional, enables advanced parameter controls
   ```
 * Delegated scope:
 
@@ -42,7 +43,8 @@ You need an Entra ID tenant with:
 
 ### User assignment
 
-* Assign the `critical.operator` role to at least one user
+* Assign the `critical.operator` role to users who need to execute critical operations
+* Optionally assign the `weather.tuner` role to power users who need fine-grained control over recompute parameters
 
 ---
 
@@ -66,7 +68,20 @@ Aspire will start:
 * The React frontend
 * All required wiring
 
-Sign in with a user that has the `critical.operator` role to execute the protected operation.
+### Role-based features
+
+**All authenticated users** can view weather forecasts.
+
+**Users with `critical.operator` role** can execute the "Recompute Weather Data" operation with default parameters.
+
+**Users with both `critical.operator` and `weather.tuner` roles** can:
+* Execute recompute with default parameters (standard behavior)
+* Access an "Advanced Options" panel to customize:
+  * **Days**: Number of days to recompute (1-30)
+  * **Resolution**: Data resolution level (low/medium/high)
+  * **Model**: Computation model (standard/experimental)
+
+The advanced options panel is only visible to users with the `weather.tuner` role, demonstrating fine-grained role-based UI capabilities.
 
 ---
 
