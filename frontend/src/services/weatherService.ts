@@ -7,12 +7,18 @@ export interface WeatherForecast {
   summary: string;
 }
 
+export interface RecomputeOptions {
+  days?: number;
+  resolution?: 'low' | 'medium' | 'high';
+  model?: 'standard' | 'experimental';
+}
+
 export const weatherService = {
   getPublicForecast: async (): Promise<WeatherForecast[]> => {
     return apiClient.get<WeatherForecast[]>('/api/weather');
   },
 
-  recomputeWeatherData: async (): Promise<string> => {
-    return apiClient.postText('/api/weather/operations/recompute');
+  recomputeWeatherData: async (options?: RecomputeOptions): Promise<string> => {
+    return apiClient.postText('/api/weather/operations/recompute', options);
   },
 };

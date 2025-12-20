@@ -38,6 +38,8 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("CriticalOperator", policy =>
         policy.RequireRole("critical.operator"));
+    options.AddPolicy("WeatherTuner", policy => 
+        policy.RequireRole("weather.tuner"));
 });
 
 
@@ -47,7 +49,7 @@ app.UseAuthorization();
 
 
 
-var api  = app.MapGroup("/api");
+var api = app.MapGroup("/api");
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi("/api/openapi/{documentName}.json");

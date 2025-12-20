@@ -1,16 +1,29 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../auth/authProvider';
-import { weatherService, type WeatherForecast } from '../services/weatherService';
+import { weatherService, type WeatherForecast, type RecomputeOptions } from '../services/weatherService';
 import './WeatherPage.css';
 
+function hasRole(roles: string[], role: string): boolean {
+    return roles.includes(role);
+}
+
 export function WeatherPage() {
-    const { isAuthorizedForCriticalOperation } = useAuth();
+    const { isAuthorizedForCriticalOperation, roles } = useAuth();
     const [weatherData, setWeatherData] = useState<WeatherForecast[]>([]);
     const [loading, setLoading] = useState(false);
     const [recomputeLoading, setRecomputeLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [result, setResult] = useState<string | null>(null);
     const [useCelsius, setUseCelsius] = useState(false);
+    
+    const [showAdvanced, setShowAdvanced] = useState(false);
+    const [advancedOptions, setAdvancedOptions] = useState<RecomputeOptions>({
+        days: 5,
+        resolution: 'medium',
+        model: 'standard',
+    });
+
+    const hasWeatherTunerRole = hasRole(roles, 'weather.tuner');
 
     const fetchWeather = async () => {
         setLoading(true);
@@ -30,7 +43,8 @@ export function WeatherPage() {
         setError(null);
         setResult(null);
         try {
-            const data = await weatherService.recomputeWeatherData();
+            const options = hasWeatherTunerRole && showAdvanced ? advancedOptions : undefined;
+            const data = await weatherService.recomputeWeatherData(options);
             setResult(data || 'Operation completed successfully');
             await fetchWeather();
         } catch (err) {
@@ -99,6 +113,67 @@ export function WeatherPage() {
                             ✓ You are authorized for critical operations
                         </p>
                     </div>
+
+                    {hasWeatherTunerRole && (
+                        <div className="advanced-controls">
+                            <button
+                                onClick={() => setShowAdvanced(!showAdvanced)}
+                                className="btn btn-link"
+                                type="button"
+                            >
+                                {showAdvanced ? '▼' : '▶'} Advanced Options
+                            </button>
+                            
+                            {showAdvanced && (
+                                <div className="advanced-panel">
+                                    <div className="form-group">
+                                        <label htmlFor="days">Days:</label>
+                                        <input
+                                            id="days"
+                                            type="number"
+                                            min="1"
+                                            max="30"
+                                            value={advancedOptions.days}
+                                            onChange={(e) => setAdvancedOptions({
+                                                ...advancedOptions,
+                                                days: parseInt(e.target.value) || 5
+                                            })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label htmlFor="resolution">Resolution:</label>
+                                        <select
+                                            id="resolution"
+                                            value={advancedOptions.resolution}
+                                            onChange={(e) => setAdvancedOptions({
+                                                ...advancedOptions,
+                                                resolution: e.target.value as 'low' | 'medium' | 'high'
+                                            })}
+                                        >
+                                            <option value="low">Low</option>
+                                            <option value="medium">Medium</option>
+                                            <option value="high">High</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label htmlFor="model">Model:</label>
+                                        <select
+                                            id="model"
+                                            value={advancedOptions.model}
+                                            onChange={(e) => setAdvancedOptions({
+                                                ...advancedOptions,
+                                                model: e.target.value as 'standard' | 'experimental'
+                                            })}
+                                        >
+                                            <option value="standard">Standard</option>
+                                            <option value="experimental">Experimental</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <button
                         onClick={handleRecompute}
                         disabled={recomputeLoading}
