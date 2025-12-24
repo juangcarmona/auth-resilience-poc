@@ -258,7 +258,9 @@ Check derived permission:
 **Required for Entra mode:**
 - `VITE_ENTRA_TENANT_ID` - Azure tenant ID
 - `VITE_ENTRA_CLIENT_ID` - SPA application client ID  
-- `VITE_API_AUDIENCE` - API scope/audience
+- `VITE_API_AUDIENCE` - API scope/audience (Application ID URI)
+
+**Where to get these values:** See [ENTRA_SETUP.md](ENTRA_SETUP.md) Part 4 for detailed instructions on collecting configuration values from Azure Portal.
 
 **Removed:**
 - ~~`VITE_AUTH_MODE`~~ - Now determined dynamically
@@ -403,6 +405,17 @@ This architecture supports:
 **Symptom:** Endless redirects to Entra  
 **Cause:** `handleRedirectPromise()` not called during initialize  
 **Solution:** Ensure `await msalInstance.handleRedirectPromise()` in `EntraAuthStrategy.initialize()`
+
+### Entra ID Configuration Issues
+
+**Symptom:** Authentication fails, AADSTS errors  
+**Cause:** Misconfigured app registrations, missing roles, or wrong configuration values  
+**Solution:** See [ENTRA_SETUP.md](ENTRA_SETUP.md) Troubleshooting section for detailed resolution steps
+
+Common Entra ID errors:
+- `AADSTS50011` - Redirect URI mismatch
+- `AADSTS65001` - Missing admin consent
+- `AADSTS700016` - Application ID URI not found
 
 ### DR Mode Not Detected
 

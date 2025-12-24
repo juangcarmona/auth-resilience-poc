@@ -88,15 +88,18 @@ See [SERVER.md](SERVER.md) for endpoint details and request/response schemas.
 
 ## Entra ID Setup
 
-Requires Azure tenant with:
-- **SPA App Registration** for React frontend
-- **API App Registration** with:
-  - Application ID URI: `api://<api-client-id>`
-  - App roles: `critical.operator`, `weather.tuner`
-  - Delegated scope: `access_as_user`
-- **User role assignments** via Enterprise Applications
+**⚠️ Required for Normal Mode to work.**
 
-See [FRONTEND.md](FRONTEND.md) for MSAL configuration details.
+Requires Azure tenant with configured app registrations, roles, and permissions.
+
+**📖 See [ENTRA_SETUP.md](ENTRA_SETUP.md) for complete step-by-step instructions:**
+- Create API and SPA app registrations
+- Define app roles (`critical.operator`, `weather.tuner`)
+- Configure API permissions and consent
+- Assign roles to users
+- Collect configuration values
+
+**Quick summary:** 2 app registrations, 2 app roles, 1 delegated permission, user assignments.
 
 ## Quick Start
 
@@ -176,6 +179,7 @@ See [SERVER.md](SERVER.md) for detailed security recommendations.
 
 ## Documentation
 
+- **[ENTRA_SETUP.md](ENTRA_SETUP.md)** - ⚠️ **START HERE** - Azure Entra ID configuration (required for Normal mode)
 - **[SERVER.md](SERVER.md)** - Backend implementation, endpoints, configuration
 - **[FRONTEND.md](FRONTEND.md)** - React architecture, strategy pattern, MSAL setup
 
