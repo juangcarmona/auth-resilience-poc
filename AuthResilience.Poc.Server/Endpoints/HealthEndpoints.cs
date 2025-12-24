@@ -1,3 +1,4 @@
+using AuthResilience.Poc.Server.Models;
 using Microsoft.Extensions.Options;
 
 public static class HealthEndpoints
@@ -5,7 +6,7 @@ public static class HealthEndpoints
     public static IEndpointRouteBuilder MapHealth(this IEndpointRouteBuilder app)
     {
         app.MapGet("/health", (
-            IOptions<AuthSettings> auth,
+            IOptions<AuthPocSettings> auth,
             IOptions<EntraSettings> entra) =>
         {
             return Results.Ok(new
@@ -16,7 +17,6 @@ public static class HealthEndpoints
                 Auth = new
                 {
                     Mode = auth.Value.AuthMode,
-                    DrEnabled = auth.Value.DrEnabled,
                     DrMaxTtlMinutes = auth.Value.DrMaxTtlMinutes
                 },
 

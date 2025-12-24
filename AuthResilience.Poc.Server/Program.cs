@@ -1,44 +1,37 @@
+using System.Text;
+using AuthResilience.Poc.Server.Configuration;
+using AuthResilience.Poc.Server.Endpoints;
+using AuthResilience.Poc.Server.Models;
+using AuthResilience.Poc.Server.OpenApi;
+using AuthResilience.Poc.Server.Services;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+{
+    // keep your existing transformer
+    options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+});
 
-
-builder.Services.Configure<AuthSettings>(builder.Configuration);
+builder.Services.Configure<AuthPocSettings>(builder.Configuration.GetSection("AuthPocSettings"));
 builder.Services.Configure<EntraSettings>(builder.Configuration);
+builder.Services.Configure<DrSettings>(builder.Configuration.GetSection("DrSettings"));
 
-// AUTHENTICATION
-builder.Services
-    .AddAuthentication("Bearer")
-    .AddJwtBearer("Bearer", options =>
-        {
-            var tenantId = builder.Configuration["ENTRA_TENANT_ID"];
-            var audience = builder.Configuration["ENTRA_API_AUDIENCE"];
+// Register DR services
+builder.Services.AddSingleton<DrUserStore>();
+builder.Services.AddSingleton<DrTokenGenerator>();
 
-            options.Authority =
-                $"https://login.microsoftonline.com/{tenantId}/v2.0";
-
-            options.Audience = audience;
-
-            options.TokenValidationParameters = new TokenValidationParameters
-            {
-                ValidIssuers = new[]
-                {
-                    $"https://login.microsoftonline.com/{tenantId}/v2.0",
-                    $"https://sts.windows.net/{tenantId}/"
-                }
-            };
-        });
-
+// AUTHENTICATION - Explicitly configure based on AuthPocSettings
+builder.Services.AddAuthResilienceAuthentication(builder.Configuration);
 
 // AUTHORIZATION
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("CriticalOperator", policy =>
         policy.RequireRole("critical.operator"));
-    options.AddPolicy("WeatherTuner", policy => 
+    options.AddPolicy("WeatherTuner", policy =>
         policy.RequireRole("weather.tuner"));
 });
 
@@ -50,6 +43,12 @@ app.UseAuthorization();
 
 
 var api = app.MapGroup("/api");
+
+api.MapHealth();
+api.MapSettings();
+api.MapWeatherPublic();
+api.MapWeatherPrivate().RequireAuthorization("CriticalOperator");
+api.MapDrAuth();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi("/api/openapi/{documentName}.json");
@@ -59,11 +58,10 @@ if (app.Environment.IsDevelopment())
     {
         options.SwaggerEndpoint("/api/openapi/v1.json", "Weather API v1");
         options.RoutePrefix = "swagger";
+        options.OAuthClientId("swagger-ui");
+        options.OAuthClientSecret("swagger-ui-secret");
+        options.OAuthUsePkce();
     });
 }
-api.MapHealth();
-api.MapWeatherPublic();
-api.MapWeatherPrivate().RequireAuthorization("CriticalOperator");
-
 app.MapGet("/", () => Results.Redirect("/swagger"));
 app.Run();
