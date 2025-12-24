@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { setTokenProvider } from '../services/apiClient';
-
-const authMode = import.meta.env.VITE_AUTH_MODE;
+import type { AuthStrategy, AppSettings } from './authStrategy';
+import { EntraAuthStrategy } from './entraAuthStrategy';
+import { DrAuthStrategy } from './drAuthStrategy';
 
 interface AuthContextValue {
   isAuthenticated: boolean;
@@ -9,9 +10,11 @@ interface AuthContextValue {
   user: string | null;
   roles: string[];
   isAuthorizedForCriticalOperation: boolean;
+  isDrMode: boolean;
   login: () => void;
+  loginWithCredentials?: (username: string, password: string) => Promise<void>;
   logout: () => void;
-  callCriticalOperation: () => Promise<string>;
+  hasRole: (role: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -28,217 +31,139 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-function decodeToken(token: string): { roles?: string[]; name?: string; preferred_username?: string; aud?: string } | null {
-  try {
-    const base64Url = token.split('.')[1];
-    if (!base64Url) return null;
-    
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      atob(base64)
-        .split('')
-        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    );
-
-    return JSON.parse(jsonPayload);
-  } catch {
-    return null;
-  }
-}
-
 export function AuthProvider({ children }: AuthProviderProps) {
-  if (authMode === 'dr') {
-    const drValue: AuthContextValue = {
-      isAuthenticated: false,
-      isLoading: false,
-      user: null,
-      roles: [],
-      isAuthorizedForCriticalOperation: false,
-      login: () => {},
-      logout: () => {},
-      callCriticalOperation: async () => {
-        throw new Error('Authentication disabled in DR mode');
-      },
-    };
-
-    return (
-      <AuthContext.Provider value={drValue}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '100vh',
-          padding: '2rem',
-          textAlign: 'center'
-        }}>
-          <div>
-            <h1>Disaster Recovery Mode</h1>
-            <p>Federated authentication is disabled.</p>
-          </div>
-        </div>
-      </AuthContext.Provider>
-    );
-  }
-
-  return <NormalModeAuthProvider>{children}</NormalModeAuthProvider>;
-}
-
-function NormalModeAuthProvider({ children }: { children: ReactNode }) {
-  const [msalReactModule, setMsalReactModule] = useState<any>(null);
-  const [msalInstance, setMsalInstance] = useState<any>(null);
-  const [accounts, setAccounts] = useState<any[]>([]);
-  const [inProgress, setInProgress] = useState<string>('startup');
+  const [strategy, setStrategy] = useState<AuthStrategy | null>(null);
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<string | null>(null);
   const [roles, setRoles] = useState<string[]>([]);
-  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
 
+  // Bootstrap: Fetch settings and initialize strategy
   useEffect(() => {
-    async function initMsal() {
-      const [msalBrowser, msalReact, { getMsalInstance }] = await Promise.all([
-        import('@azure/msal-browser'),
-        import('@azure/msal-react'),
-        import('./msalConfig')
-      ]);
-
-      setMsalReactModule(msalReact);
-
-      const instance = await getMsalInstance();
-      
-      await instance.handleRedirectPromise();
-      
-      setMsalInstance(instance);
-      setAccounts(instance.getAllAccounts());
-      setInProgress('none');
-
-      instance.addEventCallback((event: any) => {
-        if (event.eventType === msalBrowser.EventType.LOGIN_SUCCESS ||
-            event.eventType === msalBrowser.EventType.ACQUIRE_TOKEN_SUCCESS) {
-          setAccounts(instance.getAllAccounts());
-        }
-      });
-
-      setTokenProvider(async () => {
-        const accts = instance.getAllAccounts();
-        if (accts.length === 0) return null;
-        try {
-          const { tokenRequest: tokenReq } = await import('./msalConfig');
-          const response = await instance.acquireTokenSilent({
-            ...tokenReq,
-            account: accts[0],
-          });
-          return response.accessToken;
-        } catch {
-          return null;
-        }
-      });
-    }
-
-    initMsal();
-  }, []);
-
-  useEffect(() => {
-    if (!msalInstance || accounts.length === 0 || inProgress !== 'none') return;
-
-    async function loadUserData() {
+    async function bootstrap() {
       try {
-        const { tokenRequest: tokenReq } = await import('./msalConfig');
-        const response = await msalInstance.acquireTokenSilent({
-          ...tokenReq,
-          account: accounts[0],
+        // Fetch app settings to determine auth mode
+        const response = await fetch('/api/settings/status');
+        if (!response.ok) {
+          throw new Error('Failed to fetch application settings');
+        }
+        
+        const settings: AppSettings = await response.json();
+        setAppSettings(settings);
+
+        // Create appropriate strategy
+        const authStrategy = settings.isDrMode
+          ? new DrAuthStrategy()
+          : new EntraAuthStrategy();
+
+        // Initialize strategy
+        await authStrategy.initialize();
+        setStrategy(authStrategy);
+
+        // Configure token provider for API client
+        setTokenProvider(() => authStrategy.getAccessToken());
+
+        // Subscribe to auth state changes
+        authStrategy.onAuthStateChanged(() => {
+          updateAuthState(authStrategy);
         });
 
-        const decoded = decodeToken(response.accessToken);
-        if (decoded) {
-          setUser(decoded.name || decoded.preferred_username || 'Unknown');
-          setRoles(decoded.roles || []);
-          setIsAuthorized(decoded.roles?.includes('critical.operator') ?? false);
-        }
+        // Set initial state
+        updateAuthState(authStrategy);
+        setIsLoading(false);
       } catch (error) {
-        console.error('Failed to acquire token:', error);
-        setUser(null);
-        setRoles([]);
-        setIsAuthorized(false);
+        console.error('Bootstrap error:', error);
+        setInitError(error instanceof Error ? error.message : 'Failed to initialize');
+        setIsLoading(false);
       }
     }
 
-    loadUserData();
-  }, [msalInstance, accounts, inProgress]);
+    bootstrap();
+  }, []);
 
-  const login = () => {
-    if (!msalInstance) return;
-    import('./msalConfig').then(({ loginRequest }) => {
-      msalInstance.loginRedirect(loginRequest);
-    });
-  };
+  function updateAuthState(authStrategy: AuthStrategy) {
+    setIsAuthenticated(authStrategy.isAuthenticated());
+    setUser(authStrategy.getUser());
+    setRoles(authStrategy.getRoles());
+  }
 
-  const logout = () => {
-    if (!msalInstance) return;
-    msalInstance.logoutRedirect();
-  };
+  function hasRole(role: string): boolean {
+    return roles.includes(role);
+  }
 
-  const callCriticalOperation = async (): Promise<string> => {
-    if (!isAuthorized) {
-      throw new Error('Not authorized for critical operations');
+  const isAuthorizedForCriticalOperation = hasRole('critical.operator');
+  const isDrMode = appSettings?.isDrMode || false;
+
+  async function handleLogin() {
+    if (!strategy) return;
+    await strategy.login();
+  }
+
+  async function handleLoginWithCredentials(username: string, password: string) {
+    if (!strategy || !(strategy instanceof DrAuthStrategy)) {
+      throw new Error('DR login not available');
     }
+    await strategy.loginWithCredentials(username, password);
+  }
 
-    if (!msalInstance || accounts.length === 0) {
-      throw new Error('Not authenticated');
-    }
+  async function handleLogout() {
+    if (!strategy) return;
+    await strategy.logout();
+  }
 
-    try {
-      const { tokenRequest: tokenReq } = await import('./msalConfig');
-      const response = await msalInstance.acquireTokenSilent({
-        ...tokenReq,
-        account: accounts[0],
-      });
-
-      const apiResponse = await fetch('/api/weather/operations/recompute', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${response.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!apiResponse.ok) {
-        throw new Error(`HTTP error! status: ${apiResponse.status}`);
-      }
-
-      const data = await apiResponse.text();
-      return data || 'Operation completed successfully';
-    } catch (error) {
-      console.error('Critical operation failed:', error);
-      throw error;
-    }
-  };
-
-  const value: AuthContextValue = {
-    isAuthenticated: accounts.length > 0,
-    isLoading: inProgress !== 'none',
-    user,
-    roles,
-    isAuthorizedForCriticalOperation: isAuthorized,
-    login,
-    logout,
-    callCriticalOperation,
-  };
-
-  if (!msalReactModule || !msalInstance) {
+  // Show loading state during bootstrap
+  if (isLoading) {
     return (
-      <AuthContext.Provider value={{ ...value, isLoading: true }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-          <p>Loading...</p>
-        </div>
-      </AuthContext.Provider>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        fontSize: '1.2rem',
+        color: '#666'
+      }}>
+        Initializing...
+      </div>
     );
   }
 
-  const MsalProvider = msalReactModule.MsalProvider;
+  // Show error state if bootstrap failed
+  if (initError) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        padding: '2rem',
+        textAlign: 'center'
+      }}>
+        <h1 style={{ color: '#c33' }}>Initialization Error</h1>
+        <p>{initError}</p>
+        <button onClick={() => window.location.reload()}>Retry</button>
+      </div>
+    );
+  }
+
+  const contextValue: AuthContextValue = {
+    isAuthenticated,
+    isLoading: strategy?.isLoading() || false,
+    user,
+    roles,
+    isAuthorizedForCriticalOperation,
+    isDrMode,
+    login: handleLogin,
+    loginWithCredentials: isDrMode ? handleLoginWithCredentials : undefined,
+    logout: handleLogout,
+    hasRole,
+  };
 
   return (
-    <MsalProvider instance={msalInstance}>
-      <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-    </MsalProvider>
+    <AuthContext.Provider value={contextValue}>
+      {children}
+    </AuthContext.Provider>
   );
 }

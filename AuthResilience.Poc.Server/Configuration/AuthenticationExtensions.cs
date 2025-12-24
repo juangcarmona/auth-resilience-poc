@@ -68,7 +68,7 @@ public static class AuthenticationExtensions
                     $"https://login.microsoftonline.com/{tenantId}/v2.0",
                     $"https://sts.windows.net/{tenantId}/"
                 },
-                RoleClaimType = "roles" // Entra uses 'roles' claim
+                // RoleClaimType = "roles" // Entra uses 'roles' claim
             };
         });
     }

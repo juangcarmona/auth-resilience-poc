@@ -4,7 +4,7 @@ import { useAuth } from '../auth/authProvider';
 import './TopNav.css';
 
 export function TopNav() {
-  const { user, roles, logout } = useAuth();
+  const { user, roles, isDrMode, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -27,6 +27,9 @@ export function TopNav() {
       <div className="nav-container">
         <div className="nav-brand" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
           <h1>Weather Operations</h1>
+          {isDrMode && (
+            <span className="dr-mode-indicator">DISASTER RECOVERY MODE</span>
+          )}
         </div>
         <div className="nav-menu" ref={menuRef}>
           <button

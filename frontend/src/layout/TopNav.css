@@ -24,6 +24,29 @@
   font-weight: 600;
 }
 
+.dr-mode-indicator {
+  display: inline-block;
+  margin-left: 1rem;
+  padding: 0.25rem 0.75rem;
+  background: #dc3545;
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border-radius: 12px;
+  animation: dr-pulse 2s infinite;
+  vertical-align: middle;
+}
+
+@keyframes dr-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
 .nav-menu {
   position: relative;
 }

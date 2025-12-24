@@ -1,428 +1,184 @@
-# Auth Resilience POC (Aspire + Entra ID + DR Fallback)
+# Auth Resilience POC
 
-This repository contains a **.NET Aspire demo** that shows how to run a **React SPA + ASP.NET Core API** using **your own Azure Entra ID tenant** for authentication and **role-based authorization**, with a **Disaster Recovery (DR) authentication mode** as a fallback when Entra ID is unavailable.
+> **Dual authentication mode demonstration**: Azure Entra ID with Disaster Recovery fallback
 
-The focus is **identity wiring and resilience**, not UI polish.
+This proof-of-concept demonstrates a **resilient authentication architecture** for enterprise applications that need to continue operating when primary identity providers are unavailable. Built with **.NET Aspire**, **ASP.NET Core**, and **React**, it showcases production-grade patterns for authentication failover.
 
----
+## Overview
 
-## What this demo shows
+**Primary Authentication:** Azure Entra ID (OAuth 2.0 + OpenID Connect)  
+**Fallback Authentication:** Local JWT with symmetric signing (DR mode)  
+**Architecture:** Dual JWT Bearer schemes with dynamic strategy selection  
+**Authorization:** Unified role-based access control across both modes
 
-* Real Azure Entra ID integration (no mocks)
-* SPA authentication using **MSAL (Authorization Code Flow + PKCE)**
-* API authentication using **JWT Bearer**
-* **App role–based authorization** for critical operations
-* **Dual authentication schemes**: Entra ID (normal) and DR (fallback)
-* **Settings-based configuration** simulating database-stored settings
-* **Status endpoint** for clients to detect current authentication mode
-* Centralized configuration via **Aspire AppHost**
+## Key Capabilities
 
----
+✅ Real Azure Entra ID integration with MSAL  
+✅ Dual authentication schemes running simultaneously  
+✅ Dynamic mode detection via settings endpoint  
+✅ Frontend strategy pattern for transparent auth handling  
+✅ Role-based authorization working identically in both modes  
+✅ Settings-based configuration (simulates database storage)  
+✅ .NET Aspire orchestration with centralized configuration
 
-## Authentication Architecture
+## Architecture
 
-### Dual JWT Bearer Schemes
+### Technology Stack
 
-The API runs **two authentication schemes simultaneously**:
+| Component | Technology |
+|-----------|-----------|
+| Orchestration | .NET Aspire (AppHost) |
+| Backend API | ASP.NET Core Minimal APIs (.NET 10) |
+| Frontend | React 18 + TypeScript + Vite |
+| Primary Auth | Azure Entra ID (OAuth 2.0 + OIDC) |
+| DR Auth | Custom JWT Bearer (HMAC-SHA256) |
+| Frontend Auth | MSAL Browser + Strategy Pattern |
 
-1. **EntraBearer** (Normal Mode)
-   - Azure Entra ID token validation
-   - Authority: `https://login.microsoftonline.com/{tenantId}/v2.0`
-   - OAuth 2.0 / OpenID Connect
-   - Production-grade identity management
-   - Role claims from `roles` array in JWT
+### Authentication Flow
 
-2. **DrBearer** (Disaster Recovery)
-   - Locally-issued JWT tokens
-   - Issuer: `auth-resilience-dr`
-   - HMAC-SHA256 symmetric key signing
-   - In-memory user store (hardcoded)
-   - Same role structure as Entra
-   - **POC only** - not production-ready
+**Normal Mode (Entra ID):**
+1. Frontend calls `/api/settings/status` → detects `isDrMode: false`
+2. Instantiates `EntraAuthStrategy` with MSAL
+3. User clicks "Sign In" → MSAL redirect to Azure
+4. User authenticates → returns with ID + access tokens
+5. Frontend extracts roles from **access token** (not ID token)
+6. API validates JWT against Entra's public keys
 
-### Scheme Selection
+**DR Mode (Fallback):**
+1. Frontend calls `/api/settings/status` → detects `isDrMode: true`
+2. Instantiates `DrAuthStrategy` with custom login
+3. Shows username/password form
+4. User submits → `POST /api/dr/login` with credentials
+5. Backend validates against in-memory store → returns JWT
+6. Frontend stores token → API validates with symmetric key
 
-The default authentication scheme is determined at startup by reading `AuthPocSettings.AuthMode` from configuration:
+### Dual JWT Bearer Scheme Design
 
-```csharp
-// Configuration/AuthenticationExtensions.cs
-public static IServiceCollection AddAuthResilienceAuthentication(
-    this IServiceCollection services,
-    IConfiguration configuration)
-{
-    var authSettings = configuration
-        .GetSection("AuthPocSettings")
-        .Get<AuthPocSettings>() ?? new AuthPocSettings();
+See [SERVER.md](SERVER.md) for backend implementation details.
 
-    var defaultScheme = DetermineDefaultScheme(authSettings);
-    
-    services
-        .AddAuthentication(defaultScheme)
-        .AddEntraBearerAuthentication(configuration)
-        .AddDrBearerAuthentication(configuration);
-}
-
-private static string DetermineDefaultScheme(AuthPocSettings settings)
-{
-    var isDrMode = settings.AuthMode.Equals("dr", StringComparison.OrdinalIgnoreCase);
-    return isDrMode ? "DrBearer" : "EntraBearer";
-}
-```
-
-### Authorization
-
-**No duplication needed.** Existing authorization policies work with both schemes:
-
-```csharp
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("CriticalOperator", policy =>
-        policy.RequireRole("critical.operator"));
-    options.AddPolicy("WeatherTuner", policy => 
-        policy.RequireRole("weather.tuner"));
-});
-```
-
-Both schemes populate role claims correctly, so `RequireRole()` and `user.IsInRole()` work identically.
-
----
+Both schemes (`EntraBearer` and `DrBearer`) run simultaneously. The default scheme is selected at startup via `AuthPocSettings.AuthMode` configuration. Authorization policies work identically across both schemes because role claims are mapped consistently.
 
 ## Configuration
 
-### Settings Model (Database Simulation)
-
-Authentication mode and settings are configured via `appsettings.Development.json`, simulating database-stored configuration:
-
+**Mode Selection:** Edit `appsettings.Development.json`:
 ```json
 {
   "AuthPocSettings": {
-    "AuthMode": "normal",        // "normal" or "dr"
-    "DrMaxTtlMinutes": 15,       // DR token lifetime
-    "Environment": "development",
-    "MaintenanceMode": false,
-    "ApiVersion": "1.0"
-  },
-  "DrSettings": {
-    "Issuer": "auth-resilience-dr",
-    "Audience": "auth-resilience-api",
-    "SigningKey": "your-256-bit-secret-key-change-in-production!!"
+    "AuthMode": "normal"  // or "dr" for disaster recovery
   }
 }
 ```
 
-**Switch to DR mode:** Change `AuthMode` to `"dr"` and restart.
+**DR Test Users:** admin/Admin123!, operator/Operator123!, tuner/Tuner123!
 
-### DR Users (Hardcoded)
-
-When in DR mode, these users are available:
-
-| Username | Password | Roles |
-|----------|----------|-------|
-| admin | Admin123! | critical.operator, weather.tuner |
-| operator | Operator123! | critical.operator |
-| tuner | Tuner123! | weather.tuner |
-
-⚠️ **POC Only:** Plain text passwords, in-memory storage. Production requires proper password hashing and persistent storage.
-
----
+See [SERVER.md](SERVER.md) for complete configuration details and security considerations.
 
 ## API Endpoints
 
-### Public Endpoints
+**Public:**
+- `GET /api/settings/status` - Returns current auth mode (used by frontend for strategy selection)
+- `POST /api/dr/login` - DR authentication (only when `AuthMode=dr`)
+- `GET /api/weather` - Public weather data
 
-#### GET /api/settings/status
-Returns current authentication mode and application settings. Used by frontend to determine authentication strategy.
+**Protected (requires authentication):**
+- `GET /api/weather/private` - Requires `critical.operator` role
+- `GET /api/health` - Health check
 
-**Response:**
-```json
-{
-  "authMode": "dr",
-  "isDrMode": true,
-  "drMaxTtlMinutes": 15,
-  "environment": "development",
-  "maintenanceMode": false,
-  "apiVersion": "1.0",
-  "timestamp": "2025-12-24T10:30:00Z"
-}
-```
+See [SERVER.md](SERVER.md) for endpoint details and request/response schemas.
 
-#### POST /api/dr/login
-Authenticates DR users and returns JWT token. **Only active when `AuthMode=dr`.**
+## Entra ID Setup
 
-**Request:**
-```json
-{
-  "username": "admin",
-  "password": "Admin123!"
-}
-```
+Requires Azure tenant with:
+- **SPA App Registration** for React frontend
+- **API App Registration** with:
+  - Application ID URI: `api://<api-client-id>`
+  - App roles: `critical.operator`, `weather.tuner`
+  - Delegated scope: `access_as_user`
+- **User role assignments** via Enterprise Applications
 
-**Response (200):**
-```json
-{
-  "accessToken": "eyJhbGc...",
-  "tokenType": "Bearer",
-  "expiresIn": 900,
-  "username": "admin",
-  "name": "DR Administrator",
-  "roles": ["critical.operator", "weather.tuner"]
-}
-```
+See [FRONTEND.md](FRONTEND.md) for MSAL configuration details.
 
-**Errors:**
-- `400`: DR mode not enabled
-- `401`: Invalid credentials
+## Quick Start
 
-#### GET /api/weather
-Public weather data (no authentication required)
+**1. Configure auth mode:**  
+Edit `AuthResilience.Poc.Server/appsettings.Development.json` → Set `AuthMode` to `"normal"` or `"dr"`
 
-### Protected Endpoints
-
-#### GET /api/weather/private
-Requires `critical.operator` role. Returns sensitive weather operations data.
-
-#### GET /api/health
-Health check with configuration details.
-
----
-
-## Entra ID Requirements
-
-You need an Entra ID tenant with:
-
-### App Registrations
-
-* **SPA application** (React frontend)
-* **API application** (ASP.NET Core backend)
-
-### API Configuration
-
-* Application ID URI (e.g. `api://<api-client-id>`)
-* App roles:
-  ```
-  critical.operator  - Required to execute recompute operations
-  weather.tuner      - Optional, enables advanced parameter controls
-  ```
-* Delegated scope:
-  ```
-  access_as_user
-  ```
-
-### User Assignment
-
-* Assign the `critical.operator` role to users who need to execute critical operations
-* Optionally assign the `weather.tuner` role to power users who need fine-grained control
-
----
-
-## Running Locally
-
-### 1. Configure Authentication Mode
-
-Edit `AuthResilience.Poc.Server/appsettings.Development.json`:
-
-```json
-{
-  "AuthPocSettings": {
-    "AuthMode": "normal",  // or "dr" for disaster recovery
-    ...
-  }
-}
-```
-
-### 2. Run Aspire AppHost
-
+**2. Run Aspire:**  
 ```bash
 cd AuthResilience.Poc.AppHost
 dotnet run
 ```
 
-### 3. Provide Entra ID Parameters
+**3. Provide Entra credentials:**  
+When prompted: `entra-tenant-id`, `entra-spa-client-id`, `entra-api-audience`
 
-When prompted:
-* `entra-tenant-id`: Your Azure tenant ID
-* `entra-spa-client-id`: SPA application client ID
-* `entra-api-audience`: API application ID URI
+**4. Access:**  
+Aspire Dashboard → See API and Frontend URLs in console
 
-Aspire will start:
-* The API (with health checks)
-* The React frontend
-* Service discovery and wiring
+### Testing Both Modes
 
-### 4. Access the Application
+**Normal Mode:** Sign in with Azure Entra ID credentials  
+**DR Mode:** Login with `admin / Admin123!` (or operator, tuner)
 
-* **Aspire Dashboard**: Displayed in console output
-* **API Swagger**: `http://localhost:{api-port}/swagger`
-* **Frontend**: `http://localhost:3000`
+## How It Works
 
----
+**Frontend Bootstrap:**  
+Calls `/api/settings/status` → Instantiates appropriate strategy (`EntraAuthStrategy` or `DrAuthStrategy`) → Business logic uses unified `useAuth()` hook
 
-## Frontend Integration Pattern
+See [FRONTEND.md](FRONTEND.md) for strategy pattern implementation details.
 
-The frontend should call `/api/settings/status` on load to determine authentication strategy:
+## Role-Based Authorization
 
-```typescript
-// Pseudo-code
-const status = await fetch('/api/settings/status').then(r => r.json());
+**Roles:**
+- `critical.operator` - Execute "Recompute Weather Data" operation
+- `weather.tuner` - Access advanced options (days, resolution, model)
 
-if (status.isDrMode) {
-  // Show username/password login form
-  // POST credentials to /api/dr/login
-  // Store returned JWT token
-} else {
-  // Use MSAL for Entra ID authentication
-  // Redirect to OAuth flow
-}
-```
+**Demo Feature:**  
+Weather page shows role-gated UI elements. Advanced options panel visible only to users with both roles.
 
-This allows the frontend to **dynamically adapt** to the backend's authentication mode without hardcoding.
-
----
-
-## Role-Based Features
-
-### All Authenticated Users
-* View weather forecasts
-* Access public endpoints
-
-### Users with `critical.operator` Role
-* Execute "Recompute Weather Data" operation
-* Access `/api/weather/private` endpoint
-
-### Users with Both `critical.operator` and `weather.tuner` Roles
-* All `critical.operator` capabilities
-* Access "Advanced Options" panel to customize:
-  - **Days**: Number of days to recompute (1-30)
-  - **Resolution**: Data resolution level (low/medium/high)
-  - **Model**: Computation model (standard/experimental)
-
-The advanced options panel is only visible to users with the `weather.tuner` role, demonstrating fine-grained role-based UI capabilities.
-
----
-
-## Testing DR Mode
-
-### 1. Enable DR Mode
-Edit `appsettings.Development.json`:
-```json
-{ "AuthPocSettings": { "AuthMode": "dr" } }
-```
-
-Restart the application.
-
-### 2. Check Status
-```powershell
-Invoke-RestMethod -Uri "http://localhost:5000/api/settings/status"
-```
-
-### 3. Login
-```powershell
-$response = Invoke-RestMethod -Uri "http://localhost:5000/api/dr/login" `
-  -Method POST `
-  -ContentType "application/json" `
-  -Body '{"username":"admin","password":"Admin123!"}'
-
-$token = $response.accessToken
-```
-
-### 4. Call Protected Endpoint
-```powershell
-Invoke-RestMethod -Uri "http://localhost:5000/api/weather/private" `
-  -Headers @{Authorization = "Bearer $token"}
-```
-
-### 5. Test Authorization
-```powershell
-# Admin (has critical.operator) - Should succeed
-$adminToken = (Invoke-RestMethod -Uri "http://localhost:5000/api/dr/login" `
-  -Method POST -ContentType "application/json" `
-  -Body '{"username":"admin","password":"Admin123!"}').accessToken
-
-Invoke-RestMethod -Uri "http://localhost:5000/api/weather/private" `
-  -Headers @{Authorization = "Bearer $adminToken"}
-
-# Tuner (lacks critical.operator) - Should return 403 Forbidden
-$tunerToken = (Invoke-RestMethod -Uri "http://localhost:5000/api/dr/login" `
-  -Method POST -ContentType "application/json" `
-  -Body '{"username":"tuner","password":"Tuner123!"}').accessToken
-
-Invoke-RestMethod -Uri "http://localhost:5000/api/weather/private" `
-  -Headers @{Authorization = "Bearer $tunerToken"}
-```
-
----
-
-## Security Considerations
-
-### DR Mode Limitations (POC Only)
-
-⚠️ **This DR implementation is for PROOF OF CONCEPT only. NOT production-ready.**
-
-**Current limitations:**
-1. ❌ **Plain text passwords** - Use bcrypt/Argon2 in production
-2. ❌ **Hardcoded users** - Use database or external identity provider
-3. ❌ **Symmetric key in config** - Use Azure Key Vault or HSM
-4. ❌ **No rate limiting** - Add login attempt throttling
-5. ❌ **No refresh tokens** - Implement for better UX
-6. ❌ **No password policies** - Add complexity requirements
-7. ❌ **No audit logging** - Log all authentication events
-8. ❌ **No MFA** - Consider for critical operations
-
-### Production Recommendations
-
-For a production DR solution:
-- Use **certificate-based authentication** for critical users
-- Implement **password hashing** (bcrypt, Argon2)
-- Store users in **encrypted database**
-- Add **audit logging** for all DR authentications
-- Implement **rate limiting** and **account lockout**
-- Use **hardware security modules** (HSM) for key storage
-- Add **MFA/2FA** support
-- Implement **refresh tokens** with rotation
-- Add **session management** and revocation
-
----
+Authorization works identically in both Entra and DR modes.
 
 ## Project Structure
 
 ```
-AuthResilience.Poc.Server/
-├── Configuration/
-│   └── AuthenticationExtensions.cs    # Dual auth scheme setup
-├── Endpoints/
-│   ├── DrAuthEndpoints.cs            # POST /api/dr/login
-│   ├── SettingsEndpoints.cs          # GET /api/settings/status
-│   ├── HealthEndpoints.cs            # Health checks
-│   ├── WeatherPublicEndpoints.cs     # Public weather API
-│   └── WeatherPrivateEndpoints.cs    # Protected weather API
-├── Models/
-│   ├── AuthPocSettings.cs            # Application settings
-│   ├── DrUser.cs                     # DR user model
-│   ├── DrLoginRequest.cs             # Login request DTO
-│   ├── DrLoginResponse.cs            # Login response DTO
-│   └── DrSettings.cs                 # DR JWT configuration
-├── Services/
-│   ├── DrUserStore.cs                # In-memory user store
-│   └── DrTokenGenerator.cs           # JWT token generation
-├── Program.cs                        # Application startup
-└── appsettings.Development.json      # Configuration
+AuthResilience.Poc.Server/     # ASP.NET Core API
+├── Configuration/             # Auth extensions
+├── Endpoints/                 # Minimal API endpoints
+├── Models/                    # Settings & DTOs
+└── Services/                  # DR auth services
 
-AuthResilience.Poc.AppHost/
-└── AppHost.cs                        # Aspire orchestration
+AuthResilience.Poc.AppHost/    # .NET Aspire orchestration
 
-frontend/
-└── (React SPA - to be integrated)
+frontend/                      # React SPA
+├── src/auth/                  # Strategy pattern auth
+├── src/routes/                # Pages (weather, login)
+├── src/services/              # API client
+└── src/layout/                # Shell components
 ```
 
+See [SERVER.md](SERVER.md) and [FRONTEND.md](FRONTEND.md) for detailed structure.
+
+## Security Warning
+
+⚠️ **DR Mode is POC-only**: Plain text passwords, in-memory storage, symmetric keys in config.
+
+**Production Considerations:**
+- Certificate-based authentication
+- Password hashing (bcrypt/Argon2)
+- Encrypted database storage
+- Azure Key Vault for secrets
+- Rate limiting & account lockout
+- Audit logging
+- MFA/2FA support
+- Refresh token rotation
+
+See [SERVER.md](SERVER.md) for detailed security recommendations.
+
+## Documentation
+
+- **[SERVER.md](SERVER.md)** - Backend implementation, endpoints, configuration
+- **[FRONTEND.md](FRONTEND.md)** - React architecture, strategy pattern, MSAL setup
+
 ---
 
-## Next Steps
-
-- [ ] Frontend: Implement authentication strategy detection
-- [ ] Frontend: Add DR login form
-- [ ] Frontend: Integrate MSAL for Entra ID
-- [ ] Backend: Add audit logging
-- [ ] Backend: Implement refresh tokens
-- [ ] Backend: Add rate limiting
-
----
+**Focus:** Authentication resilience patterns, not production-ready security.
